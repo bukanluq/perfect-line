@@ -1,1 +1,627 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Symmetry Slicer ✂️</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;800;900&display=swap');
+
+        :root {
+            --bg-color: #f0f8ff;
+            --primary: #ff6b6b;
+            --secondary: #4ecdc4;
+            --text-dark: #2f3640;
+            --panel-bg: #ffffff;
+            --shadow-color: rgba(47, 54, 64, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Nunito', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.8rem;
+            color: var(--primary);
+            font-weight: 900;
+        }
+
+        .level-select {
+            display: flex;
+            gap: 10px;
+            background: var(--panel-bg);
+            padding: 5px;
+            border-radius: 30px;
+            box-shadow: 0 4px 10px var(--shadow-color);
+        }
+
+        .level-select button {
+            background: transparent;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-family: inherit;
+            font-weight: 800;
+            color: #7f8fa6;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .level-select button.active {
+            background: var(--secondary);
+            color: white;
+            box-shadow: 0 2px 5px var(--shadow-color);
+        }
+
+        #game-area {
+            flex-grow: 1;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 20px;
+        }
+
+        #prompt-text {
+            font-size: 1.3rem;
+            font-weight: 800;
+            margin-bottom: 15px;
+            text-align: center;
+            height: 35px;
+        }
+
+        #canvas-container {
+            width: 100%;
+            max-width: 450px;
+            aspect-ratio: 1;
+            background: var(--panel-bg);
+            border-radius: 25px;
+            box-shadow: 0 15px 35px var(--shadow-color);
+            position: relative;
+            touch-action: none; /* Prevents screen scrolling while drawing */
+            margin-bottom: 25px;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .shape-path {
+            stroke: #2f3640;
+            stroke-width: 4;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+
+        #draw-line {
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        /* Smooth hardware-accelerated transition for separation */
+        #piece-1, #piece-2 {
+            transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .action-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+            min-height: 120px;
+        }
+
+        .btn-large {
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            font-weight: 900;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            color: white;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.15);
+            transition: transform 0.1s, box-shadow 0.1s, filter 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-large:active:not(:disabled) {
+            transform: translateY(6px);
+            box-shadow: 0 0px 0 rgba(0,0,0,0.15);
+        }
+
+        .btn-large:disabled {
+            background: #dcdde1;
+            box-shadow: 0 6px 0 #bdc3c7;
+            cursor: not-allowed;
+            color: #7f8fa6;
+        }
+
+        #btn-cut { background: var(--primary); box-shadow: 0 6px 0 #ee5253; }
+        #btn-yes { background: var(--secondary); box-shadow: 0 6px 0 #1dd1a1; font-size: 1.2rem; }
+        #btn-no { background: #ff9f43; box-shadow: 0 6px 0 #feca57; font-size: 1.2rem; }
+        #btn-next { background: #5f27cd; box-shadow: 0 6px 0 #341f97; }
+
+        .btn-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .panel-view {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .panel-view.active {
+            display: flex;
+        }
+
+        #feedback-text {
+            font-size: 1.2rem;
+            font-weight: 800;
+            text-align: center;
+            margin: 0 0 15px 0;
+            max-width: 400px;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.9); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+        .shake { animation: shake 0.4s ease-in-out; }
+
+        .confetti {
+            position: fixed;
+            width: 12px;
+            height: 12px;
+            pointer-events: none;
+            transition: transform 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 1.5s ease-out;
+            z-index: 9999;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>✂️ Symmetry Slicer</h1>
+        <div class="level-select" id="level-tabs">
+            <button class="active" data-level="easy">Easy</button>
+            <button data-level="medium">Medium</button>
+            <button data-level="hard">Hard</button>
+        </div>
+    </header>
+
+    <div id="game-area">
+        <div id="prompt-text">Draw a line of symmetry!</div>
+        
+        <div id="canvas-container">
+            <!-- viewBox establishes the internal coordinate system: 0,0 is the exact center -->
+            <svg id="game-svg" viewBox="-150 -150 300 300">
+                <defs>
+                    <!-- Two huge rectangles that act as cookie cutters. They will be rotated to match the cut angle -->
+                    <clipPath id="clip-1">
+                        <rect id="rect-1" x="-500" y="-500" width="1000" height="500" />
+                    </clipPath>
+                    <clipPath id="clip-2">
+                        <rect id="rect-2" x="-500" y="0" width="1000" height="500" />
+                    </clipPath>
+                </defs>
+
+                <!-- Left/Top half -->
+                <g id="piece-1" clip-path="url(#clip-1)">
+                    <g class="shape-rotator">
+                        <path class="shape-path" d="" fill="#ff6b6b" />
+                    </g>
+                </g>
+                
+                <!-- Right/Bottom half -->
+                <g id="piece-2" clip-path="url(#clip-2)">
+                    <g class="shape-rotator">
+                        <path class="shape-path" d="" fill="#ff6b6b" />
+                    </g>
+                </g>
+
+                <!-- The line drawn by the user -->
+                <line id="draw-line" x1="0" y1="0" x2="0" y2="0" stroke="#2f3640" stroke-width="5" stroke-dasharray="10 10" opacity="0" />
+            </svg>
+        </div>
+
+        <div class="action-panel" id="panel-cut" class="panel-view active">
+            <button class="btn-large" id="btn-cut" disabled>✂️ Cut!</button>
+        </div>
+
+        <div class="action-panel panel-view" id="panel-question">
+            <p id="feedback-text" style="margin-bottom: 10px;">Are the two halves mirror images?</p>
+            <div class="btn-group">
+                <button class="btn-large" id="btn-yes">✅ Yes, Symmetrical</button>
+                <button class="btn-large" id="btn-no">❌ No, Not Symmetrical</button>
+            </div>
+        </div>
+
+        <div class="action-panel panel-view" id="panel-feedback">
+            <p id="feedback-result" style="margin-bottom: 15px; font-weight: 800; font-size: 1.2rem;"></p>
+            <button class="btn-large" id="btn-next">Next Shape ➡️</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Shape Data ---
+        // Coordinates centered around (0,0). symAngles represent the angles of symmetry lines (0-179 deg).
+        // 0 = horizontal line, 90 = vertical line.
+        const shapesDB = [
+            { id: 'heart', path: 'M 0 -20 C -50 -80, -110 -20, 0 80 C 110 -20, 50 -80, 0 -20 Z', symAngles: [90], symmetrical: true },
+            { id: 'butterfly', path: 'M 0 -50 C -60 -100, -120 -30, -20 10 C -100 40, -60 100, 0 50 C 60 100, 100 40, 20 10 C 120 -30, 60 -100, 0 -50 Z', symAngles: [90], symmetrical: true },
+            { id: 'square', path: 'M -60 -60 L 60 -60 L 60 60 L -60 60 Z', symAngles: [0, 45, 90, 135], symmetrical: true },
+            { id: 'triangle', path: 'M 0 -70 L 70 60 L -70 60 Z', symAngles: [90], symmetrical: true },
+            { id: 'star', path: 'M 0 -80 L 22 -25 L 80 -25 L 33 10 L 50 70 L 0 35 L -50 70 L -33 10 L -80 -25 L -22 -25 Z', symAngles: [90, 162, 234, 306, 18], symmetrical: true },
+            // Asymmetrical Shapes
+            { id: 'blob', path: 'M -50 -40 Q 40 -100 70 -10 T 40 80 Q -60 100 -70 20 Z', symAngles: [], symmetrical: false },
+            { id: 'l-shape', path: 'M -40 -70 L -10 -70 L -10 40 L 50 40 L 50 70 L -40 70 Z', symAngles: [], symmetrical: false },
+            { id: 'lightning', path: 'M 20 -80 L -40 10 L 0 10 L -20 80 L 40 -10 L 0 -10 Z', symAngles: [], symmetrical: false }
+        ];
+
+        const colors = ['#ff6b6b', '#4ecdc4', '#ffe66d', '#ff9f43', '#c56cf0', '#32ff7e', '#ff9ff3'];
+
+        // --- Application State ---
+        let currentLevel = 'easy';
+        let currentShapeObj = null;
+        let expectedSymAngles = []; 
+        let isDrawing = false;
+        let lineCoords = { x1: 0, y1: 0, x2: 0, y2: 0 };
+        let hasDrawnLine = false;
+        let cutAngle = 0;
+        let wasLineSnapped = false;
+        let cutCenter = { x: 0, y: 0 };
+
+        // DOM Elements
+        const svg = document.getElementById('game-svg');
+        const drawLine = document.getElementById('draw-line');
+        const shapePaths = document.querySelectorAll('.shape-path');
+        const shapeRotators = document.querySelectorAll('.shape-rotator');
+        const piece1 = document.getElementById('piece-1');
+        const piece2 = document.getElementById('piece-2');
+        const rect1 = document.getElementById('rect-1');
+        const rect2 = document.getElementById('rect-2');
+        
+        const btnCut = document.getElementById('btn-cut');
+        const panelCut = document.getElementById('panel-cut');
+        const panelQuestion = document.getElementById('panel-question');
+        const panelFeedback = document.getElementById('panel-feedback');
+        const promptText = document.getElementById('prompt-text');
+
+        // --- Initialization & Logic ---
+        function setLevel(level) {
+            currentLevel = level;
+            document.querySelectorAll('.level-select button').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.level-select button[data-level="${level}"]`).classList.add('active');
+            startNewRound();
+        }
+
+        function getFilteredShapes() {
+            if (currentLevel === 'easy') {
+                // Easy: Only symmetrical shapes with straight vertical/horizontal symmetry
+                return shapesDB.filter(s => s.symmetrical && (s.symAngles.includes(90) || s.symAngles.includes(0)));
+            } else if (currentLevel === 'medium') {
+                return shapesDB.filter(s => s.symmetrical);
+            } else {
+                return shapesDB; // Hard: Everything included
+            }
+        }
+
+        function normalizeAngle(a) {
+            let na = a % 180;
+            if (na < 0) na += 180;
+            return na;
+        }
+
+        function angleDiff(a, b) {
+            let diff = Math.abs(normalizeAngle(a) - normalizeAngle(b));
+            return Math.min(diff, 180 - diff);
+        }
+
+        function startNewRound(keepSameShape = false) {
+            // Reset UI
+            drawLine.setAttribute('opacity', '0');
+            hasDrawnLine = false;
+            btnCut.disabled = true;
+            piece1.style.transform = 'translate(0px, 0px)';
+            piece2.style.transform = 'translate(0px, 0px)';
+            
+            // Reset Cutters
+            rect1.setAttribute('transform', '');
+            rect2.setAttribute('transform', '');
+
+            switchPanels('cut');
+            promptText.innerText = "Draw a line of symmetry!";
+
+            if (!keepSameShape) {
+                const pool = getFilteredShapes();
+                currentShapeObj = pool[Math.floor(Math.random() * pool.length)];
+                
+                // Determine rotation based on difficulty
+                let rotation = 0;
+                if (currentLevel === 'hard') {
+                    rotation = Math.floor(Math.random() * 8) * 45; // 0, 45, 90...
+                }
+
+                // Apply aesthetics
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                shapePaths.forEach(p => {
+                    p.setAttribute('d', currentShapeObj.path);
+                    p.setAttribute('fill', color);
+                });
+                shapeRotators.forEach(g => g.setAttribute('transform', `rotate(${rotation})`));
+
+                // Adjust expected symmetry angles based on rotation
+                expectedSymAngles = currentShapeObj.symAngles.map(a => normalizeAngle(a + rotation));
+            }
+        }
+
+        // --- Interaction Logic (Drawing the line) ---
+        function getSvgPoint(evt) {
+            const CTM = svg.getScreenCTM();
+            let clientX = evt.clientX;
+            let clientY = evt.clientY;
+            if (evt.touches && evt.touches.length > 0) {
+                clientX = evt.touches[0].clientX;
+                clientY = evt.touches[0].clientY;
+            }
+            return {
+                x: (clientX - CTM.e) / CTM.a,
+                y: (clientY - CTM.f) / CTM.d
+            };
+        }
+
+        function onPointerDown(e) {
+            // Prevent drawing if we aren't in the cut phase
+            if (panelCut.style.display === 'none' && panelCut.classList.contains('active') === false) return;
+            
+            isDrawing = true;
+            const pt = getSvgPoint(e);
+            lineCoords.x1 = lineCoords.x2 = pt.x;
+            lineCoords.y1 = lineCoords.y2 = pt.y;
+            
+            drawLine.setAttribute('x1', pt.x);
+            drawLine.setAttribute('y1', pt.y);
+            drawLine.setAttribute('x2', pt.x);
+            drawLine.setAttribute('y2', pt.y);
+            drawLine.setAttribute('opacity', '1');
+            drawLine.setAttribute('stroke', '#2f3640'); // reset to dark color
+        }
+
+        function onPointerMove(e) {
+            if (!isDrawing) return;
+            const pt = getSvgPoint(e);
+            lineCoords.x2 = pt.x;
+            lineCoords.y2 = pt.y;
+            drawLine.setAttribute('x2', pt.x);
+            drawLine.setAttribute('y2', pt.y);
+        }
+
+        function onPointerUp(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+            
+            const dist = Math.hypot(lineCoords.x2 - lineCoords.x1, lineCoords.y2 - lineCoords.y1);
+            if (dist < 30) {
+                // Line too short, reject
+                drawLine.setAttribute('opacity', '0');
+                hasDrawnLine = false;
+                btnCut.disabled = true;
+                return;
+            }
+
+            hasDrawnLine = true;
+            btnCut.disabled = false;
+            evaluateSnapping();
+        }
+
+        function evaluateSnapping() {
+            // Calculate raw properties
+            let rawAngleRad = Math.atan2(lineCoords.y2 - lineCoords.y1, lineCoords.x2 - lineCoords.x1);
+            let rawAngleDeg = normalizeAngle(rawAngleRad * 180 / Math.PI);
+            
+            let cx = (lineCoords.x1 + lineCoords.x2) / 2;
+            let cy = (lineCoords.y1 + lineCoords.y2) / 2;
+
+            wasLineSnapped = false;
+            cutAngle = rawAngleDeg;
+            cutCenter = { x: cx, y: cy };
+
+            // Check if it's close to a true symmetry line
+            for (let expected of expectedSymAngles) {
+                if (angleDiff(rawAngleDeg, expected) < 15) { // 15 degrees angle tolerance
+                    // Calculate perpendicular distance to origin
+                    let d = Math.abs((lineCoords.x2 - lineCoords.x1)*(0 - lineCoords.y1) - (lineCoords.y2 - lineCoords.y1)*(0 - lineCoords.x1)) / Math.hypot(lineCoords.x2 - lineCoords.x1, lineCoords.y2 - lineCoords.y1);
+                    
+                    if (d < 35) { // 35 units position tolerance
+                        wasLineSnapped = true;
+                        cutAngle = expected;
+                        cutCenter = { x: 0, y: 0 }; // Symmetry lines pass through origin
+                        drawLine.setAttribute('stroke', '#f39c12'); // Highlight snapped line (golden)
+                        break;
+                    }
+                }
+            }
+
+            // Visually extend the line across the whole shape
+            const r = 250;
+            const finalRad = cutAngle * Math.PI / 180;
+            drawLine.setAttribute('x1', cutCenter.x - Math.cos(finalRad) * r);
+            drawLine.setAttribute('y1', cutCenter.y - Math.sin(finalRad) * r);
+            drawLine.setAttribute('x2', cutCenter.x + Math.cos(finalRad) * r);
+            drawLine.setAttribute('y2', cutCenter.y + Math.sin(finalRad) * r);
+        }
+
+        // --- Core Action: Cutting ---
+        function executeCut() {
+            btnCut.disabled = true;
+            promptText.innerText = "Analyzing split...";
+            drawLine.setAttribute('opacity', '0'); // Hide drawing line for clear visual separation
+
+            // Orient the clipping rectangles
+            rect1.setAttribute('transform', `translate(${cutCenter.x}, ${cutCenter.y}) rotate(${cutAngle})`);
+            rect2.setAttribute('transform', `translate(${cutCenter.x}, ${cutCenter.y}) rotate(${cutAngle})`);
+
+            // Separate the pieces visually
+            const normRad = (cutAngle - 90) * Math.PI / 180;
+            const dist = 30; // Pixel separation
+            const dx = Math.cos(normRad) * dist;
+            const dy = Math.sin(normRad) * dist;
+
+            piece1.style.transform = `translate(${dx}px, ${dy}px)`;
+            piece2.style.transform = `translate(${-dx}px, ${-dy}px)`;
+
+            setTimeout(() => {
+                switchPanels('question');
+                promptText.innerText = "";
+            }, 600); // Wait for transition
+        }
+
+        // --- Feedback Logic ---
+        function checkAnswer(userSaidSym) {
+            let isSymShape = currentShapeObj.symmetrical;
+            
+            let isWin = false;
+            let isPartial = false;
+            let msg = "";
+
+            if (isSymShape && wasLineSnapped) {
+                if (userSaidSym) {
+                    msg = "Awesome! Both sides are perfect mirror images across your line. 🏆";
+                    isWin = true;
+                } else {
+                    msg = "Actually, these two halves match perfectly! That makes it symmetrical.";
+                }
+            } else if (isSymShape && !wasLineSnapped) {
+                if (userSaidSym) {
+                    msg = "Not quite! Look closely, your cut didn't create exact mirror images. 🔍";
+                } else {
+                    msg = "Right, these halves don't match! BUT this shape DOES have a hidden line of symmetry. Can you find it? 🤔";
+                    isPartial = true; // Let them retry the same shape
+                }
+            } else {
+                // Asymmetrical shape
+                if (userSaidSym) {
+                    msg = "Look closely! The left and right sides are different, so it's not symmetrical.";
+                } else {
+                    msg = "Great job! This shape is completely asymmetrical, no matter how you cut it. 🎉";
+                    isWin = true;
+                }
+            }
+
+            // Display Feedback
+            document.getElementById('feedback-result').innerText = msg;
+            
+            const btnNext = document.getElementById('btn-next');
+            if (isPartial && !isWin) {
+                btnNext.innerText = "Try Again 🔄";
+                btnNext.onclick = () => startNewRound(true);
+            } else {
+                btnNext.innerText = "Next Shape ➡️";
+                btnNext.onclick = () => startNewRound(false);
+            }
+
+            switchPanels('feedback');
+
+            if (isWin) {
+                shootConfetti();
+            } else {
+                document.getElementById('canvas-container').classList.add('shake');
+                setTimeout(() => document.getElementById('canvas-container').classList.remove('shake'), 400);
+            }
+        }
+
+        // --- UI Utilities ---
+        function switchPanels(panelName) {
+            document.querySelectorAll('.panel-view').forEach(p => {
+                p.classList.remove('active');
+                p.style.display = 'none';
+            });
+            const target = document.getElementById('panel-' + panelName);
+            target.style.display = 'flex';
+            // Slight delay to allow display:flex to apply before adding active class for animation
+            setTimeout(() => target.classList.add('active'), 10);
+        }
+
+        function shootConfetti() {
+            const colors = ['#1dd1a1', '#ff6b6b', '#feca57', '#5f27cd', '#48dbfb'];
+            for(let i = 0; i < 40; i++) {
+                let conf = document.createElement('div');
+                conf.className = 'confetti';
+                conf.style.left = '50%';
+                conf.style.top = '50%';
+                conf.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                document.body.appendChild(conf);
+
+                let angle = Math.random() * Math.PI * 2;
+                let vel = Math.random() * 400 + 100;
+                let tx = Math.cos(angle) * vel;
+                let ty = Math.sin(angle) * vel;
+
+                setTimeout(() => {
+                    conf.style.transform = `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) rotate(${Math.random()*720}deg)`;
+                    conf.style.opacity = '0';
+                }, 20);
+
+                setTimeout(() => conf.remove(), 1600);
+            }
+        }
+
+        // --- Event Listeners ---
+        svg.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+
+        btnCut.addEventListener('click', executeCut);
+        document.getElementById('btn-yes').addEventListener('click', () => checkAnswer(true));
+        document.getElementById('btn-no').addEventListener('click', () => checkAnswer(false));
+        
+        document.querySelectorAll('.level-select button').forEach(btn => {
+            btn.addEventListener('click', (e) => setLevel(e.target.getAttribute('data-level')));
+        });
+
+        // Start Game
+        startNewRound();
+    </script>
+</body>
+</html>
