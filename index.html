@@ -665,6 +665,10 @@
 
             ctx.save();
             
+            // FIX: Apply the separation offset FIRST. 
+            // This ensures the clipping mask moves WITH the sliced shape!
+            ctx.translate(nx * offsetAmount, ny * offsetAmount);
+            
             // Create massive polygon for clipping
             ctx.beginPath();
             ctx.moveTo(activeCutLine.p1.x, activeCutLine.p1.y);
@@ -673,9 +677,6 @@
             ctx.lineTo(activeCutLine.p1.x + nx * 3000, activeCutLine.p1.y + ny * 3000);
             ctx.closePath();
             ctx.clip();
-
-            // Apply separation offset
-            ctx.translate(nx * offsetAmount, ny * offsetAmount);
 
             // Transform to shape coordinates
             ctx.translate(currentShape.x, currentShape.y);
