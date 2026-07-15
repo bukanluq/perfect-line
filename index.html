@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Symmetry Splash Lab</title>
+    <title>Symmetry Splash Lab - Pro Edition</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
 
@@ -42,13 +42,13 @@
 
         header {
             text-align: center;
-            margin-top: 20px;
+            margin-top: 15px;
             z-index: 10;
         }
 
         h1 {
             margin: 0;
-            font-size: 2.5rem;
+            font-size: 2.2rem;
             font-weight: 900;
             color: var(--primary);
             text-shadow: 2px 2px 0px rgba(0,0,0,0.1);
@@ -83,9 +83,9 @@
         #game-container {
             position: relative;
             width: 90vw;
-            max-width: 800px;
-            height: 60vh;
-            min-height: 400px;
+            max-width: 900px;
+            height: 65vh;
+            min-height: 450px;
             background: var(--panel-bg);
             border-radius: 24px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
@@ -108,7 +108,7 @@
             transform: translateX(-50%);
             display: flex;
             gap: 20px;
-            pointer-events: none; /* Let clicks pass through unless on buttons */
+            pointer-events: none;
         }
 
         .action-btn {
@@ -122,7 +122,7 @@
             cursor: pointer;
             box-shadow: 0 6px 0 rgba(0,0,0,0.15);
             transition: transform 0.1s, box-shadow 0.1s;
-            display: none; /* Hidden by default */
+            display: none;
         }
 
         .action-btn:active {
@@ -221,9 +221,25 @@
             opacity: 1;
             transition: opacity 0.3s;
         }
+        
+        #audio-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-size: 2rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
+
+    <div id="audio-overlay">Click anywhere to start! 🎵</div>
 
     <header>
         <h1>Symmetry Splash Lab</h1>
@@ -252,6 +268,58 @@
     </div>
 
     <script>
+        // --- AUDIO ENGINE (Web Audio API) ---
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playTone(freq, type, duration, vol = 0.1) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        function playSnap() { playTone(800, 'sine', 0.1, 0.2); }
+        function playCut() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        }
+        function playCorrect() {
+            setTimeout(() => playTone(440, 'triangle', 0.2), 0);
+            setTimeout(() => playTone(554, 'triangle', 0.2), 100);
+            setTimeout(() => playTone(659, 'triangle', 0.4), 200);
+        }
+        function playWrong() {
+            setTimeout(() => playTone(300, 'sawtooth', 0.3), 0);
+            setTimeout(() => playTone(250, 'sawtooth', 0.4), 150);
+        }
+
+        document.getElementById('audio-overlay').addEventListener('click', function() {
+            initAudio();
+            this.style.display = 'none';
+        });
+
         // --- GAME STATE & CONSTANTS ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -262,19 +330,12 @@
         let difficulty = 'easy'; // easy, medium, hard
         let state = 'DRAWING'; // DRAWING, CUT_READY, CUTTING, ANSWERING, FEEDBACK
         
-        // Input tracking
         let isDragging = false;
         let lineStart = null;
         let lineEnd = null;
-
-        // Current Shape Data
         let currentShape = null;
-        
-        // Cutting Animation Data
         let splitOffset = 0;
-        let cutLine = null; // The finalized line (possibly snapped)
-
-        // Particles
+        let cutLine = null;
         let confetti = [];
 
         // UI Elements
@@ -287,122 +348,140 @@
         const btnNext = document.getElementById('btn-next');
         const diffBtns = document.querySelectorAll('.difficulty-btn');
 
-        // --- SHAPE DEFINITIONS ---
-        // Shapes are defined centered at (0,0). Size roughly fits in a 100px radius.
+        // --- SHAPE DEFINITIONS (26 SHAPES) ---
         const shapeDefinitions = [
-            {
-                name: 'Heart',
-                sym: true,
-                baseAngle: Math.PI / 2, // Vertical symmetry axis
-                color: '#ff7675',
-                draw: (c) => {
-                    c.beginPath();
-                    c.moveTo(0, 30);
-                    c.bezierCurveTo(-50, -20, -100, -80, -30, -100);
-                    c.bezierCurveTo(0, -110, 0, -40, 0, -40);
-                    c.bezierCurveTo(0, -40, 0, -110, 30, -100);
-                    c.bezierCurveTo(100, -80, 50, -20, 0, 30);
-                    c.fill();
-                    c.stroke();
+            // === EASY SHAPES (Simple, highly recognizable) ===
+            { diff: 'easy', name: 'Heart', sym: true, baseAngle: Math.PI/2, color: '#ff7675', draw: (c) => {
+                c.beginPath(); c.moveTo(0, 30); c.bezierCurveTo(-50, -20, -100, -80, -30, -100);
+                c.bezierCurveTo(0, -110, 0, -40, 0, -40); c.bezierCurveTo(0, -40, 0, -110, 30, -100);
+                c.bezierCurveTo(100, -80, 50, -20, 0, 30); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Star', sym: true, baseAngle: Math.PI/2, color: '#f9ca24', draw: (c) => {
+                c.beginPath();
+                for (let i = 0; i < 10; i++) {
+                    let r = i % 2 === 0 ? 100 : 40; let a = (i * Math.PI) / 5 - Math.PI / 2;
+                    i === 0 ? c.moveTo(Math.cos(a)*r, Math.sin(a)*r) : c.lineTo(Math.cos(a)*r, Math.sin(a)*r);
                 }
-            },
-            {
-                name: 'Star',
-                sym: true,
-                baseAngle: Math.PI / 2,
-                color: '#f9ca24',
-                draw: (c) => {
-                    c.beginPath();
-                    for (let i = 0; i < 10; i++) {
-                        let r = i % 2 === 0 ? 100 : 40;
-                        let a = (i * Math.PI) / 5 - Math.PI / 2;
-                        if (i === 0) c.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-                        else c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-                    }
-                    c.closePath();
-                    c.fill();
-                    c.stroke();
+                c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Shield', sym: true, baseAngle: Math.PI/2, color: '#0984e3', draw: (c) => {
+                c.beginPath(); c.moveTo(0, -90); c.lineTo(80, -90); c.lineTo(80, 0);
+                c.bezierCurveTo(80, 60, 40, 100, 0, 110); c.bezierCurveTo(-40, 100, -80, 60, -80, 0);
+                c.lineTo(-80, -90); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Circle', sym: true, baseAngle: Math.PI/2, color: '#00cec9', draw: (c) => {
+                c.beginPath(); c.arc(0, 0, 90, 0, Math.PI*2); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Square', sym: true, baseAngle: Math.PI/2, color: '#fdcb6e', draw: (c) => {
+                c.beginPath(); c.rect(-80, -80, 160, 160); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Equilateral Triangle', sym: true, baseAngle: Math.PI/2, color: '#6c5ce7', draw: (c) => {
+                c.beginPath(); c.moveTo(0, -90); c.lineTo(90, 80); c.lineTo(-90, 80); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Blob', sym: false, baseAngle: null, color: '#55efc4', draw: (c) => {
+                c.beginPath(); c.moveTo(0, -100); c.bezierCurveTo(100, -80, 120, 40, 50, 90);
+                c.bezierCurveTo(-10, 110, -100, 60, -70, 0); c.bezierCurveTo(-40, -60, -50, -110, 0, -100); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Letter L', sym: false, baseAngle: null, color: '#e84393', draw: (c) => {
+                c.beginPath(); c.moveTo(-40, -100); c.lineTo(10, -100); c.lineTo(10, 50); c.lineTo(80, 50);
+                c.lineTo(80, 100); c.lineTo(-40, 100); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'easy', name: 'Scalene Triangle', sym: false, baseAngle: null, color: '#e17055', draw: (c) => {
+                c.beginPath(); c.moveTo(0, -90); c.lineTo(110, 60); c.lineTo(-50, 90); c.closePath(); c.fill(); c.stroke();
+            }},
+
+            // === MEDIUM SHAPES ===
+            { diff: 'medium', name: 'Butterfly', sym: true, baseAngle: Math.PI/2, color: '#a29bfe', draw: (c) => {
+                c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-80, -100, -120, -40, -40, 10);
+                c.bezierCurveTo(-100, 60, -60, 120, 0, 40); c.bezierCurveTo(60, 120, 100, 60, 40, 10);
+                c.bezierCurveTo(120, -40, 80, -100, 0, 0); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Hexagon', sym: true, baseAngle: Math.PI/2, color: '#00b894', draw: (c) => {
+                c.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    let a = (i * Math.PI) / 3;
+                    i === 0 ? c.moveTo(Math.cos(a)*90, Math.sin(a)*90) : c.lineTo(Math.cos(a)*90, Math.sin(a)*90);
                 }
-            },
-            {
-                name: 'Butterfly',
-                sym: true,
-                baseAngle: Math.PI / 2,
-                color: '#a29bfe',
-                draw: (c) => {
-                    c.beginPath();
-                    // Left Wing
-                    c.moveTo(0, 0);
-                    c.bezierCurveTo(-80, -100, -120, -40, -40, 10);
-                    c.bezierCurveTo(-100, 60, -60, 120, 0, 40);
-                    // Right Wing
-                    c.bezierCurveTo(60, 120, 100, 60, 40, 10);
-                    c.bezierCurveTo(120, -40, 80, -100, 0, 0);
-                    c.fill();
-                    c.stroke();
-                    // Body
-                    c.fillStyle = '#636e72';
-                    c.beginPath();
-                    c.ellipse(0, 0, 10, 40, 0, 0, Math.PI * 2);
-                    c.fill();
+                c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Crescent', sym: true, baseAngle: 0, color: '#ffeaa7', draw: (c) => {
+                c.beginPath(); c.arc(0, 0, 80, Math.PI*1.5, Math.PI*0.5, true);
+                c.arc(40, 0, 90, Math.PI*0.5, Math.PI*1.5, false); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Arrow', sym: true, baseAngle: 0, color: '#ff7675', draw: (c) => {
+                c.beginPath(); c.moveTo(100, 0); c.lineTo(20, -60); c.lineTo(20, -25);
+                c.lineTo(-100, -25); c.lineTo(-100, 25); c.lineTo(20, 25); c.lineTo(20, 60); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Cross', sym: true, baseAngle: Math.PI/2, color: '#74b9ff', draw: (c) => {
+                c.beginPath(); c.moveTo(-30, -90); c.lineTo(30, -90); c.lineTo(30, -30); c.lineTo(90, -30);
+                c.lineTo(90, 30); c.lineTo(30, 30); c.lineTo(30, 90); c.lineTo(-30, 90); c.lineTo(-30, 30);
+                c.lineTo(-90, 30); c.lineTo(-90, -30); c.lineTo(-30, -30); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Diamond', sym: true, baseAngle: Math.PI/2, color: '#a29bfe', draw: (c) => {
+                c.beginPath(); c.moveTo(0, -100); c.lineTo(60, 0); c.lineTo(0, 100); c.lineTo(-60, 0); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Parallelogram', sym: false, baseAngle: null, color: '#fab1a0', draw: (c) => {
+                c.beginPath(); c.moveTo(-50, -60); c.lineTo(90, -60); c.lineTo(50, 60); c.lineTo(-90, 60); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Cloud', sym: false, baseAngle: null, color: '#dfe6e9', draw: (c) => {
+                c.beginPath(); c.arc(-40, 20, 40, 0, Math.PI*2); c.arc(0, -20, 50, 0, Math.PI*2);
+                c.arc(50, 10, 45, 0, Math.PI*2); c.rect(-40, -10, 90, 70); c.fill(); c.stroke();
+            }},
+            { diff: 'medium', name: 'Mug', sym: false, baseAngle: null, color: '#d63031', draw: (c) => {
+                c.beginPath(); c.rect(-50, -60, 100, 120); c.fill(); c.stroke();
+                c.beginPath(); c.arc(50, 0, 40, -Math.PI/2, Math.PI/2); c.lineWidth=15; c.stroke(); c.lineWidth=6;
+            }},
+            { diff: 'medium', name: 'Key', sym: false, baseAngle: null, color: '#f1c40f', draw: (c) => {
+                c.beginPath(); c.arc(-60, 0, 30, 0, Math.PI*2); c.moveTo(-30, 0); c.lineTo(80, 0);
+                c.lineTo(80, 30); c.lineTo(60, 30); c.lineTo(60, 0); c.lineTo(50, 0); c.lineTo(50, 20);
+                c.lineTo(30, 20); c.lineTo(30, 0); c.fill(); c.stroke();
+            }},
+
+            // === HARD SHAPES ===
+            { diff: 'hard', name: 'Crown', sym: true, baseAngle: Math.PI/2, color: '#f9ca24', draw: (c) => {
+                c.beginPath(); c.moveTo(-80, 80); c.lineTo(80, 80); c.lineTo(90, -40);
+                c.lineTo(40, 20); c.lineTo(0, -80); c.lineTo(-40, 20); c.lineTo(-90, -40); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'hard', name: 'Spade', sym: true, baseAngle: Math.PI/2, color: '#2d3436', draw: (c) => {
+                c.beginPath(); c.moveTo(0, -80); c.bezierCurveTo(100, 0, 80, 60, 0, 40);
+                c.bezierCurveTo(-80, 60, -100, 0, 0, -80); c.fill(); c.stroke();
+                c.beginPath(); c.moveTo(0, 30); c.lineTo(20, 90); c.lineTo(-20, 90); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'hard', name: 'Anchor', sym: true, baseAngle: Math.PI/2, color: '#34495e', draw: (c) => {
+                c.beginPath(); c.arc(0, -60, 20, 0, Math.PI*2); c.fill(); c.stroke();
+                c.beginPath(); c.moveTo(0, -40); c.lineTo(0, 70); c.moveTo(-40, -20); c.lineTo(40, -20); c.stroke();
+                c.beginPath(); c.arc(0, 30, 50, 0, Math.PI); c.stroke();
+                c.beginPath(); c.moveTo(50, 30); c.lineTo(60, 10); c.lineTo(40, 10); c.closePath(); c.fill(); c.stroke();
+                c.beginPath(); c.moveTo(-50, 30); c.lineTo(-60, 10); c.lineTo(-40, 10); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'hard', name: 'Cog', sym: true, baseAngle: Math.PI/2, color: '#7f8c8d', draw: (c) => {
+                c.beginPath();
+                for (let i = 0; i < 16; i++) {
+                    let r = i % 2 === 0 ? 80 : 100; let a = (i * Math.PI) / 8;
+                    i === 0 ? c.moveTo(Math.cos(a)*r, Math.sin(a)*r) : c.lineTo(Math.cos(a)*r, Math.sin(a)*r);
                 }
-            },
-            {
-                name: 'Shield',
-                sym: true,
-                baseAngle: Math.PI / 2,
-                color: '#0984e3',
-                draw: (c) => {
-                    c.beginPath();
-                    c.moveTo(0, -90);
-                    c.lineTo(80, -90);
-                    c.lineTo(80, 0);
-                    c.bezierCurveTo(80, 60, 40, 100, 0, 110);
-                    c.bezierCurveTo(-40, 100, -80, 60, -80, 0);
-                    c.lineTo(-80, -90);
-                    c.closePath();
-                    c.fill();
-                    c.stroke();
-                }
-            },
-            {
-                name: 'Irregular Blob',
-                sym: false,
-                baseAngle: null,
-                color: '#55efc4',
-                draw: (c) => {
-                    c.beginPath();
-                    c.moveTo(0, -100);
-                    c.bezierCurveTo(100, -80, 120, 40, 50, 90);
-                    c.bezierCurveTo(-10, 110, -100, 60, -70, 0);
-                    c.bezierCurveTo(-40, -60, -50, -110, 0, -100);
-                    c.fill();
-                    c.stroke();
-                }
-            },
-            {
-                name: 'Letter L',
-                sym: false,
-                baseAngle: null,
-                color: '#fdcb6e',
-                draw: (c) => {
-                    c.beginPath();
-                    c.moveTo(-40, -100);
-                    c.lineTo(10, -100);
-                    c.lineTo(10, 50);
-                    c.lineTo(80, 50);
-                    c.lineTo(80, 100);
-                    c.lineTo(-40, 100);
-                    c.closePath();
-                    c.fill();
-                    c.stroke();
-                }
-            }
+                c.closePath(); c.fill(); c.stroke();
+                c.beginPath(); c.arc(0, 0, 30, 0, Math.PI*2); c.fillStyle='#fff'; c.fill(); c.stroke();
+            }},
+            { diff: 'hard', name: 'Lightning', sym: false, baseAngle: null, color: '#f1c40f', draw: (c) => {
+                c.beginPath(); c.moveTo(-30, -90); c.lineTo(40, -90); c.lineTo(10, -10);
+                c.lineTo(60, -10); c.lineTo(-40, 100); c.lineTo(-10, 20); c.lineTo(-60, 20); c.closePath(); c.fill(); c.stroke();
+            }},
+            { diff: 'hard', name: 'Wrench', sym: false, baseAngle: null, color: '#95a5a6', draw: (c) => {
+                c.beginPath(); c.arc(-50, -50, 30, Math.PI*0.2, Math.PI*1.8);
+                c.lineTo(60, 40); c.arc(70, 70, 20, 0, Math.PI*2);
+                c.lineTo(-30, -30); c.fill(); c.stroke();
+            }},
+            { diff: 'hard', name: 'Number 5', sym: false, baseAngle: null, color: '#e74c3c', draw: (c) => {
+                c.beginPath(); c.moveTo(40, -80); c.lineTo(-40, -80); c.lineTo(-40, -10);
+                c.bezierCurveTo(40, -40, 70, 30, 20, 70); c.bezierCurveTo(-10, 90, -50, 60, -50, 40);
+                c.lineTo(-20, 30); c.bezierCurveTo(-20, 50, 10, 60, 20, 40);
+                c.bezierCurveTo(30, 10, -10, 10, -10, 10); c.lineTo(-10, -50); c.lineTo(40, -50); c.closePath(); c.fill(); c.stroke();
+            }}
         ];
 
         // --- SETUP & RESIZING ---
         function resize() {
-            // Handle high DPI displays
             const rect = container.getBoundingClientRect();
             width = rect.width;
             height = rect.height;
@@ -428,23 +507,23 @@
             feedbackPanel.classList.remove('show');
             instructions.style.opacity = '1';
 
-            // Select shape based on difficulty weighting
-            // Ensure a good mix of sym and asym
-            let isSymTarget = Math.random() > 0.4; // 60% chance for a symmetrical shape
-            let availableShapes = shapeDefinitions.filter(s => s.sym === isSymTarget);
-            if (availableShapes.length === 0) availableShapes = shapeDefinitions;
+            // Filter by difficulty
+            let diffShapes = shapeDefinitions.filter(s => s.diff === difficulty);
+            
+            // 60% chance for a symmetrical shape to keep the game engaging
+            let isSymTarget = Math.random() > 0.4; 
+            let availableShapes = diffShapes.filter(s => s.sym === isSymTarget);
+            if (availableShapes.length === 0) availableShapes = diffShapes;
             
             let def = availableShapes[Math.floor(Math.random() * availableShapes.length)];
             
             let rot = 0;
             if (difficulty === 'easy') {
-                rot = 0; // Always upright (vertical symmetry if applicable)
+                rot = 0; 
             } else if (difficulty === 'medium') {
-                // 0, 90, 180, 270 degrees
-                rot = (Math.floor(Math.random() * 4) * Math.PI) / 2;
+                rot = (Math.floor(Math.random() * 4) * Math.PI) / 2; // 0, 90, 180, 270
             } else {
-                // Any rotation
-                rot = Math.random() * Math.PI * 2;
+                rot = Math.random() * Math.PI * 2; // Any angle
             }
 
             currentShape = {
@@ -452,22 +531,19 @@
                 x: width / 2,
                 y: height / 2,
                 rot: rot,
-                scale: 1.5 + Math.random() * 0.5, // Random slight scale variation
+                scale: 1.2 + Math.random() * 0.4, 
                 actualSymAngle: def.sym ? (def.baseAngle + rot) : null
             };
 
             drawFrame();
         }
 
-        // --- INPUT HANDLING ---
+        // --- INPUT & SMART SNAPPING ---
         function getPointerPos(e) {
             const rect = canvas.getBoundingClientRect();
             let clientX = e.touches ? e.touches[0].clientX : e.clientX;
             let clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            return {
-                x: clientX - rect.left,
-                y: clientY - rect.top
-            };
+            return { x: clientX - rect.left, y: clientY - rect.top };
         }
 
         function handlePointerDown(e) {
@@ -492,14 +568,43 @@
             if (!isDragging) return;
             isDragging = false;
             
-            // If the line is too short, cancel it
             let dist = Math.hypot(lineEnd.x - lineStart.x, lineEnd.y - lineStart.y);
             if (dist < 50) {
-                lineStart = null;
-                lineEnd = null;
+                lineStart = null; lineEnd = null;
                 instructions.style.opacity = '1';
-                drawFrame();
-                return;
+                drawFrame(); return;
+            }
+
+            // SMART SNAP ON RELEASE
+            if (currentShape.def.sym) {
+                let dx = lineEnd.x - lineStart.x;
+                let dy = lineEnd.y - lineStart.y;
+                let userAngle = Math.atan2(dy, dx);
+                
+                let nUser = (userAngle + Math.PI*4) % Math.PI;
+                let nTrue = (currentShape.actualSymAngle + Math.PI*4) % Math.PI;
+                
+                let angleDiff = Math.abs(nUser - nTrue);
+                if (angleDiff > Math.PI/2) angleDiff = Math.PI - angleDiff;
+
+                let distToCenter = Math.abs(dy * currentShape.x - dx * currentShape.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x) / Math.hypot(dx, dy);
+
+                // Forgiving tolerances
+                let angleTol = difficulty === 'hard' ? 0.25 : 0.4; 
+                let distTol = difficulty === 'hard' ? 40 : 80;
+
+                if (angleDiff < angleTol && distToCenter < distTol) {
+                    let extend = 500;
+                    lineStart = {
+                        x: currentShape.x - Math.cos(currentShape.actualSymAngle) * extend,
+                        y: currentShape.y - Math.sin(currentShape.actualSymAngle) * extend
+                    };
+                    lineEnd = {
+                        x: currentShape.x + Math.cos(currentShape.actualSymAngle) * extend,
+                        y: currentShape.y + Math.sin(currentShape.actualSymAngle) * extend
+                    };
+                    playSnap(); // Audio feedback for a perfect snap!
+                }
             }
 
             state = 'CUT_READY';
@@ -510,59 +615,21 @@
         canvas.addEventListener('mousedown', handlePointerDown);
         window.addEventListener('mousemove', handlePointerMove);
         window.addEventListener('mouseup', handlePointerUp);
-        
         canvas.addEventListener('touchstart', handlePointerDown, {passive: false});
         window.addEventListener('touchmove', handlePointerMove, {passive: false});
         window.addEventListener('touchend', handlePointerUp);
 
-        // --- SMART CUTTING & PHYSICS ---
+        // --- CUTTING PHYSICS ---
         btnCut.addEventListener('click', () => {
             if (state !== 'CUT_READY') return;
+            playCut();
             btnCut.style.display = 'none';
             state = 'CUTTING';
-
-            // SMART SNAP LOGIC
-            // If shape is actually symmetrical, check if user is close to the true symmetry line
             cutLine = { p1: { ...lineStart }, p2: { ...lineEnd } };
-            
-            if (currentShape.def.sym) {
-                // Calculate user angle
-                let dx = cutLine.p2.x - cutLine.p1.x;
-                let dy = cutLine.p2.y - cutLine.p1.y;
-                let userAngle = Math.atan2(dy, dx);
-                
-                // Normalize angles to 0..PI for comparison (lines are bidirectional)
-                let nUser = (userAngle + Math.PI*4) % Math.PI;
-                let nTrue = (currentShape.actualSymAngle + Math.PI*4) % Math.PI;
-                
-                let angleDiff = Math.abs(nUser - nTrue);
-                if (angleDiff > Math.PI/2) angleDiff = Math.PI - angleDiff;
 
-                // Distance from shape center to user line
-                let distToCenter = Math.abs(dy * currentShape.x - dx * currentShape.y + cutLine.p2.x * cutLine.p1.y - cutLine.p2.y * cutLine.p1.x) / Math.hypot(dx, dy);
-
-                // Tolerance based on difficulty
-                let angleTol = difficulty === 'hard' ? 0.15 : 0.35; // ~8deg to ~20deg
-                let distTol = difficulty === 'hard' ? 30 : 60;
-
-                if (angleDiff < angleTol && distToCenter < distTol) {
-                    // SNAP! Force the line through the center at the exact angle
-                    let extend = 500;
-                    cutLine.p1 = {
-                        x: currentShape.x - Math.cos(currentShape.actualSymAngle) * extend,
-                        y: currentShape.y - Math.sin(currentShape.actualSymAngle) * extend
-                    };
-                    cutLine.p2 = {
-                        x: currentShape.x + Math.cos(currentShape.actualSymAngle) * extend,
-                        y: currentShape.y + Math.sin(currentShape.actualSymAngle) * extend
-                    };
-                }
-            }
-
-            // Animate Splitting
             let splitInterval = setInterval(() => {
-                splitOffset += 2;
-                if (splitOffset > 40) {
+                splitOffset += 2.5;
+                if (splitOffset > 45) {
                     clearInterval(splitInterval);
                     state = 'ANSWERING';
                     btnSym.style.display = 'block';
@@ -580,43 +647,27 @@
 
             let shapeActuallySym = currentShape.def.sym;
             
-            // Did they find the exact line? (Check if cutLine passes through center and matches angle)
-            // If they didn't snap, they missed it. 
-            // So if shape is sym, but they made a bad cut, technically the cut halves don't match.
-            // But conceptually we want to teach about the shape's property.
-            
             let dx = cutLine.p2.x - cutLine.p1.x;
             let dy = cutLine.p2.y - cutLine.p1.y;
             let cutDistToCenter = Math.abs(dy * currentShape.x - dx * currentShape.y + cutLine.p2.x * cutLine.p1.y - cutLine.p2.y * cutLine.p1.x) / Math.hypot(dx, dy);
-            let isPerfectCut = shapeActuallySym && cutDistToCenter < 1; // Snapped
+            let isPerfectCut = shapeActuallySym && cutDistToCenter < 1; 
 
             let isCorrect = false;
-            let title = "";
-            let text = "";
+            let title = "", text = "";
 
             if (isUserSayingSym) {
                 if (shapeActuallySym && isPerfectCut) {
-                    isCorrect = true;
-                    title = "Correct!";
-                    text = "Perfect cut! Both sides are identical mirror images.";
+                    isCorrect = true; title = "Correct!"; text = "Perfect cut! Both sides are identical mirror images.";
                 } else if (shapeActuallySym && !isPerfectCut) {
-                    isCorrect = false;
-                    title = "Not Quite!";
-                    text = "This shape IS symmetrical, but your line was off. See how the halves don't match?";
+                    isCorrect = false; title = "Not Quite!"; text = "This shape IS symmetrical, but your line missed the exact center.";
                 } else {
-                    isCorrect = false;
-                    title = "Oops!";
-                    text = "This shape is asymmetrical. No matter how you cut it, the sides won't match perfectly.";
+                    isCorrect = false; title = "Oops!"; text = "This shape is asymmetrical. The sides will never match perfectly.";
                 }
-            } else { // User says Asymmetrical
+            } else {
                 if (!shapeActuallySym) {
-                    isCorrect = true;
-                    title = "Correct!";
-                    text = "Good eye! This is an irregular shape with no line of symmetry.";
+                    isCorrect = true; title = "Correct!"; text = "Good eye! This is an irregular shape with no line of symmetry.";
                 } else {
-                    isCorrect = false;
-                    title = "Look Closer!";
-                    text = "This shape actually IS symmetrical. You just needed to find the right angle to cut it!";
+                    isCorrect = false; title = "Look Closer!"; text = "This shape actually IS symmetrical. You just needed the right angle!";
                 }
             }
 
@@ -626,8 +677,10 @@
             feedbackPanel.classList.add('show');
 
             if (isCorrect) {
+                playCorrect();
                 fireConfetti();
             } else {
+                playWrong();
                 container.classList.add('shake');
                 setTimeout(() => container.classList.remove('shake'), 500);
             }
@@ -658,18 +711,13 @@
             let dx = activeCutLine.p2.x - activeCutLine.p1.x;
             let dy = activeCutLine.p2.y - activeCutLine.p1.y;
             let len = Math.hypot(dx, dy);
-            let nx = -dy / len; // Normal vector
-            let ny = dx / len;
+            let nx = -dy / len; let ny = dx / len;
             
             if (side === -1) { nx = -nx; ny = -ny; }
 
             ctx.save();
-            
-            // FIX: Apply the separation offset FIRST. 
-            // This ensures the clipping mask moves WITH the sliced shape!
             ctx.translate(nx * offsetAmount, ny * offsetAmount);
             
-            // Create massive polygon for clipping
             ctx.beginPath();
             ctx.moveTo(activeCutLine.p1.x, activeCutLine.p1.y);
             ctx.lineTo(activeCutLine.p2.x, activeCutLine.p2.y);
@@ -678,23 +726,19 @@
             ctx.closePath();
             ctx.clip();
 
-            // Transform to shape coordinates
             ctx.translate(currentShape.x, currentShape.y);
             ctx.rotate(currentShape.rot);
             ctx.scale(currentShape.scale, currentShape.scale);
 
             drawShapeBase(ctx);
-            
             ctx.restore();
         }
 
         function drawFrame() {
             ctx.clearRect(0, 0, width, height);
-
             if (!currentShape) return;
 
             if (state === 'DRAWING' || state === 'CUT_READY') {
-                // Draw whole shape
                 ctx.save();
                 ctx.translate(currentShape.x, currentShape.y);
                 ctx.rotate(currentShape.rot);
@@ -702,7 +746,6 @@
                 drawShapeBase(ctx);
                 ctx.restore();
 
-                // Draw user line
                 if (lineStart && lineEnd) {
                     ctx.save();
                     ctx.beginPath();
@@ -714,18 +757,15 @@
                     ctx.stroke();
                     ctx.restore();
 
-                    // Scissors icon at cursor
                     ctx.font = "24px sans-serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
                     ctx.fillText("✂️", lineEnd.x, lineEnd.y);
                 }
             } else if (state === 'CUTTING' || state === 'ANSWERING' || state === 'FEEDBACK') {
-                // Draw two halves
                 drawShapeHalf(ctx, 1, cutLine, splitOffset);
                 drawShapeHalf(ctx, -1, cutLine, splitOffset);
 
-                // Draw cut line indicator
                 ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(cutLine.p1.x, cutLine.p1.y);
@@ -737,26 +777,15 @@
                 ctx.restore();
             }
 
-            // Draw Confetti
             if (confetti.length > 0) {
                 for (let i = confetti.length - 1; i >= 0; i--) {
                     let p = confetti[i];
-                    p.x += p.vx;
-                    p.y += p.vy;
-                    p.vy += 0.2; // gravity
-                    p.rot += p.vRot;
-                    p.life -= 0.01;
-                    
-                    if (p.life <= 0) {
-                        confetti.splice(i, 1);
-                        continue;
-                    }
-
+                    p.x += p.vx; p.y += p.vy; p.vy += 0.2; 
+                    p.rot += p.vRot; p.life -= 0.01;
+                    if (p.life <= 0) { confetti.splice(i, 1); continue; }
                     ctx.save();
-                    ctx.translate(p.x, p.y);
-                    ctx.rotate(p.rot);
-                    ctx.globalAlpha = p.life;
-                    ctx.fillStyle = p.color;
+                    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+                    ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
                     ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
                     ctx.restore();
                 }
@@ -764,26 +793,21 @@
             }
         }
 
-        // --- CONFETTI SYSTEM ---
         function fireConfetti() {
             const colors = ['#4facfe', '#00f2fe', '#ff0844', '#ffb199', '#38ef7d', '#f9ca24'];
             for (let i = 0; i < 80; i++) {
                 confetti.push({
-                    x: width / 2,
-                    y: height / 2,
-                    vx: (Math.random() - 0.5) * 20,
-                    vy: (Math.random() - 0.5) * 20 - 5,
+                    x: width / 2, y: height / 2,
+                    vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20 - 5,
                     size: Math.random() * 8 + 4,
                     color: colors[Math.floor(Math.random() * colors.length)],
-                    rot: Math.random() * Math.PI * 2,
-                    vRot: (Math.random() - 0.5) * 0.5,
+                    rot: Math.random() * Math.PI * 2, vRot: (Math.random() - 0.5) * 0.5,
                     life: 1.0 + Math.random() * 0.5
                 });
             }
             drawFrame();
         }
 
-        // Initialize
         resize();
         startNewRound();
 
